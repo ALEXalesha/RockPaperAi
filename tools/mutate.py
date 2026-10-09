@@ -15,12 +15,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # (имя, файл, было, стало, проверки)
 MUTANTS = [
-    ("cards: бьёт равной", "game/core/cards.py",
-     "return defense % 9 > attack % 9", "return defense % 9 >= attack % 9", "tests/test_cards.py"),
-    ("cards: козырь не бьёт", "game/core/cards.py",
-     "return sd == trump", "return False", "tests/test_cards.py"),
-    ("cards: раздача по 5", "game/core/cards.py",
-     "for _ in range(HAND):", "for _ in range(HAND - 1):", "tests/test_cards.py"),
+    ("rules: ничья не ничья", "game/core/rules.py", "    if a == b:\n        return TIE",
+     "    if False:\n        return TIE", "tests/test_rules.py"),
+    ("rules: бьёт чётный сдвиг", "game/core/rules.py", "return (a - b) % k % 2 == 1", "return (a - b) % k % 2 == 0",
+     "tests/test_rules.py"),
 ]
 
 

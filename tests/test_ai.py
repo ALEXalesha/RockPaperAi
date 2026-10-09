@@ -75,6 +75,37 @@ def test_reaction_win_stay_lose_shift():
         assert close(s.predict(), last.human)
 
 
+def test_reaction_reference_moves():
+    """«От своего хода»: человек всегда повторяет себя; «от хода ИИ»: всегда копирует ИИ.
+    На пяти знаках: на трёх исход и свой ход однозначно задают ход ИИ, и опоры не различить."""
+    rng = random.Random(3)
+    me, ai_ref = P.Reaction(5, "self"), P.Reaction(5, "ai")
+    h = 0
+    for _ in range(60):
+        a = rng.randrange(5)
+        me.update(h, a)
+    assert close(me.predict(), h, 0.8)
+    last_a = 0
+    for _ in range(60):
+        a = rng.randrange(5)
+        ai_ref.update(last_a, a)
+        last_a = a
+    assert close(ai_ref.predict(), last_a, 0.8)
+
+
+def test_thoughts_name_the_right_shift():
+    """Человек всегда играет камень: ИИ ждёт камень (сдвиг 0) и бьёт его бумагой."""
+    ai = make_ai("medium", 3, seed=2)
+    from game.core.match import Match
+    m = Match(3, 0)
+    for _ in range(30):
+        m.prepare(ai)
+        m.play(ROCK, ai)
+    move, th = ai.choose(m.history())
+    assert th["mode"] == "predict" and th["shift"] == 0
+    assert max(range(3), key=lambda i: th["dist"][i]) == ROCK and move == PAPER
+
+
 def test_history_match_finds_longest_repeat():
     seq = [0, 1, 2, 2, 1, 0, 0, 2]
     hm = feed(P.HistoryMatch(3, "h"), [(x, 0) for x in seq * 3])
@@ -208,6 +239,19 @@ def test_habits_found_for_loss_shift_and_favorite():
         hist.append(Round(h, a, outcome(h, a)))
     keys = [x["key"] for x in analyse(hist)]
     assert "loss_beat_ai" in keys and "win_stay" in keys
+    # после проигрыша бьёт ход ИИ, после победы - копирует ход ИИ (не бьёт его)
+    hist = []
+    for _ in range(120):
+        a = rng.randrange(3)
+        if hist and hist[-1].result == LOSS:
+            h = beaters(hist[-1].ai)[0]
+        elif hist and hist[-1].result == WIN:
+            h = hist[-1].ai
+        else:
+            h = rng.randrange(3)
+        hist.append(Round(h, a, outcome(h, a)))
+    lb = [x for x in analyse(hist) if x["key"] == "loss_beat_ai"]
+    assert lb and lb[0]["rate"] == 1.0
     fav = analyse(rounds_of([(SCISSORS, 0)] * 30 + [(ROCK, 1)] * 5))
     assert any(x["key"] == "favorite" and x["move"] == SCISSORS for x in fav)
 
