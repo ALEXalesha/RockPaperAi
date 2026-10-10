@@ -11,7 +11,7 @@ import random
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLayout,
                                QListWidget, QScrollArea, QSlider, QStackedWidget, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
@@ -23,6 +23,7 @@ from game.ai.bots import BOTS
 from game.ai.habits import analyse, caught_at
 from game.ai.player import LEVELS
 from game.core.rules import LOSS, NAMES, WIN
+from game.ui.charts import BarChart, LineChart
 from game.ui.i18n import translator
 from game.ui.session import Session
 from game.ui.views import ProbBars, ShareChart, SignButton
@@ -39,6 +40,7 @@ SCHEMA = {
     "peek": (False, st.boolean()),
     "delay_ms": (500, st.int_range(0, 3000)),
 }
+MAX_HISTORY = 500
 PASSPORT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "rockpaper-passport.json")
 
 
@@ -211,6 +213,8 @@ class PlayPage(QWidget):
 
         self.status = label("", "status", wrap=True)
         main.addWidget(self.status)
+        self.not_counted = label("", None, wrap=True)
+        main.addWidget(self.not_counted)
         self.commit = label("", "hint", wrap=True)
         main.addWidget(self.commit)
         signs = QHBoxLayout()
@@ -248,6 +252,12 @@ class PlayPage(QWidget):
         self.menu_button = button("", None, lambda: gw.show_page("menu"))
         for b in (self.new_button, self.end_button, self.pause_button):
             buttons.addWidget(b)
+        # Флажок подглядывания - здесь, а не в узкой боковой панели: длинная подпись не
+        # переносится и раздвигала панель, обрезая подписи «Мыслей ИИ» справа.
+        self.peek_box = QCheckBox("")
+        self.peek_box.toggled.connect(lambda on: gw.change("peek", on))
+        buttons.addSpacing(12)
+        buttons.addWidget(self.peek_box)
         buttons.addStretch(1)
         buttons.addWidget(self.menu_button)
         main.addLayout(buttons)
@@ -271,10 +281,16 @@ class PlayPage(QWidget):
         col.addWidget(self.thoughts_hint)
         self.th_title = label("", "section", wrap=True)
         col.addWidget(self.th_title)
+        self.forecast_note = label("", None, wrap=True)
+        col.addWidget(self.forecast_note)
+        self.ai_move_peek = label("", "section", wrap=True)
+        col.addWidget(self.ai_move_peek)
         self.bars_caption = label("", "muted", wrap=True)
         col.addWidget(self.bars_caption)
         self.bars = ProbBars()
         col.addWidget(self.bars)
+        self.th_actual = label("", "muted", wrap=True)
+        col.addWidget(self.th_actual)
         self.th_mode = label("", None, wrap=True)
         col.addWidget(self.th_mode)
         self.th_leader = label("", None, wrap=True)
@@ -291,27 +307,20 @@ class PlayPage(QWidget):
         self.ranking.setMinimumHeight(130)
         self.ranking.setWordWrap(True)
         col.addWidget(self.ranking)
-        col.addSpacing(8)
-        self.peek_box = QCheckBox("")
-        self.peek_box.toggled.connect(lambda on: gw.change("peek", on))
-        col.addWidget(self.peek_box)
-        self.peek_hint = label("", "hint", wrap=True)
-        col.addWidget(self.peek_hint)
         col.addStretch(1)
         root.addWidget(side)
 
     def thought_widgets(self):
-        return (self.th_title, self.bars_caption, self.bars, self.th_mode, self.th_leader, self.th_shift,
-                self.th_memory, self.ranking_caption, self.ranking)
+        return (self.th_title, self.bars_caption, self.bars, self.th_actual, self.th_mode, self.th_leader,
+                self.th_shift, self.th_memory, self.ranking_caption, self.ranking)
 
     def retranslate(self):
         t = self.gw.t
         self.thoughts_box.setText(t("thoughts"))
         self.thoughts_hint.setText(t("thoughts_hint"))
-        self.bars_caption.setText(t("predicted"))
         self.ranking_caption.setText(t("ranking"))
         self.peek_box.setText(t("peek"))
-        self.peek_hint.setText(t("peek_hint"))
+        self.peek_box.setToolTip(t("peek_tip"))
         self.new_button.setText(t("new_match"))
         self.end_button.setText(t("end_match"))
         self.menu_button.setText(t("menu"))
@@ -330,6 +339,9 @@ class StatsPage(QWidget):
         body = page_widget()
         lay.addWidget(scroll_of(body))
         outer = QVBoxLayout(body)
+        # страница не меньше своего содержимого: иначе в прокрутке карточки с постоянной
+        # высотой (таблицы, графики) налезали друг на друга
+        outer.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         outer.setContentsMargins(26, 22, 26, 22)
         outer.setSpacing(12)
         top = QHBoxLayout()
@@ -345,11 +357,58 @@ class StatsPage(QWidget):
         outer.addWidget(self.table)
         self.note = label("", "hint", wrap=True)
         outer.addWidget(self.note)
+        self.chart_matches = LineChart()
+        self.chart_levels = BarChart()
+        self.chart_ai = BarChart()
+        for c in (self.chart_matches, self.chart_levels, self.chart_ai):
+            outer.addWidget(c)
         self.pp_caption = label("", "section", wrap=True)
         outer.addWidget(self.pp_caption)
         self.pp = self._table()
         outer.addWidget(self.pp)
         outer.addStretch(1)
+
+    def charts(self):
+        return (self.chart_matches, self.chart_levels, self.chart_ai)
+
+    def refresh_charts(self):
+        """Графики: доля выигранных раундов по матчам, по уровням и сила ИИ по паспорту."""
+        t = self.gw.t
+        g = self.gw
+        for c in self.charts():
+            c.set_theme(g.ctx.theme)
+        cm = self.chart_matches
+        cm.title, cm.empty_text, cm.x_label = t("chart_matches"), t("chart_matches_empty"), t("chart_match_x")
+        cm.names = (t("series_you"), t("series_ai"))
+        hist = g.match_history()
+        cm.set_points([(i + 1, m["wins"] / m["rounds"]) for i, m in enumerate(hist)],
+                      [(i + 1, m["losses"] / m["rounds"]) for i, m in enumerate(hist)])
+        cl = self.chart_levels
+        cl.title, cl.empty_text = t("chart_levels"), t("chart_levels_empty")
+        groups, you, ai = [], [], []
+        for key, (w, ti, lo) in sorted(g.round_totals().items()):
+            k, lv = key.split("/")
+            n = w + ti + lo
+            if n and lv in LEVELS:
+                groups.append(f"{k} · {t(lv)}")
+                you.append(w / n)
+                ai.append(lo / n)
+        cl.set_data(groups, [(t("series_you"), "good", you), (t("series_ai"), "bad", ai)])
+        ca = self.chart_ai
+        ca.title, ca.empty_text = t("chart_ai_strength"), t("no_passport")
+        pp = g.passport()
+        bots = ("repeat", "cycle", "wsls", "markov2", "biased", "human", "random", "mirror", "exploit")
+        if pp is None:
+            ca.set_data([], [])
+            return
+        series = []
+        for k, key, name in ((3, "accent", t("series_k3")), (5, "warn", t("series_k5"))):
+            vals = []
+            for b in bots:
+                c = next((c for c in pp["checks"] if c["k"] == k and c["level"] == "strong" and c["bot"] == b), None)
+                vals.append(c["after30"]["win"] if c else 0.0)
+            series.append((name, key, vals))
+        ca.set_data([t("b_" + b) for b in bots], series)
 
     @staticmethod
     def _table():
@@ -395,6 +454,7 @@ class StatsPage(QWidget):
         self._fill(self.table, [t("col_setup"), t("col_matches"), t("col_wins"), t("col_draws"),
                                 t("col_losses"), t("col_rounds")], rows)
         self.note.setText(t("stats_note"))
+        self.refresh_charts()
         self.pp_caption.setText(t("passport"))
         pp = g.passport()
         if pp is None:
@@ -425,6 +485,9 @@ class SettingsPage(QWidget):
         body = page_widget()
         lay.addWidget(scroll_of(body))
         outer = QVBoxLayout(body)
+        # страница не меньше своего содержимого: иначе в прокрутке карточки с постоянной
+        # высотой (таблицы, графики) налезали друг на друга
+        outer.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         outer.setContentsMargins(26, 22, 26, 22)
         outer.setSpacing(14)
         top = QHBoxLayout()
@@ -587,6 +650,8 @@ class GameWidget(QWidget):
         c = theme.palette(self.ctx.theme)
         for combo in self.findChildren(Combo):
             combo.set_arrow_color(c["text"])
+        for chart in self.stats.charts():
+            chart.set_theme(self.ctx.theme)
         self.refresh()
         self.update()
 
@@ -607,6 +672,20 @@ class GameWidget(QWidget):
         if self._passport is None:
             self._passport = load_json(PASSPORT)
         return self._passport
+
+    def match_history(self):
+        """Сыгранные в статистику матчи по порядку: [{k, level, rounds, wins, ties, losses}]."""
+        data = load_json(self.ctx.file("matches.json"))
+        if not isinstance(data, list):
+            return []
+        out = []
+        for m in data:
+            if (isinstance(m, dict) and m.get("k") in (3, 5) and m.get("level") in LEVELS
+                    and all(isinstance(m.get(f), int) and not isinstance(m.get(f), bool) and m[f] >= 0
+                            for f in ("rounds", "wins", "ties", "losses"))
+                    and m["wins"] + m["ties"] + m["losses"] == m["rounds"] > 0):
+                out.append(m)
+        return out
 
     def round_totals(self):
         data = load_json(self.ctx.file("rounds.json"))
@@ -688,6 +767,10 @@ class GameWidget(QWidget):
             old = totals.get(s.stats_key(), [0, 0, 0])
             totals[s.stats_key()] = [old[0] + sc["wins"], old[1] + sc["ties"], old[2] + sc["losses"]]
             save_json(self.ctx.file("rounds.json"), totals)
+            history = self.match_history()
+            history.append({"k": s.k, "level": s.level, "rounds": len(s.rounds), "wins": sc["wins"],
+                            "ties": sc["ties"], "losses": sc["losses"]})
+            save_json(self.ctx.file("matches.json"), history[-MAX_HISTORY:])
         if outcome:
             self.ctx.sound.play(outcome)
 
@@ -729,6 +812,11 @@ class GameWidget(QWidget):
             restyle(pp.status, "status")
             pp.status.setText(t("demo_wait", bot=t("b_" + s.bot_key)) if demo else t("pick", k=s.k))
             pp.commit.setText(t("committed", h=s.commit[:16] + "…" + s.commit[-6:]) if s.commit else "")
+        pal = theme.palette(self.ctx.theme)
+        pp.not_counted.setVisible(s.mode == "play" and s.peeked)
+        pp.not_counted.setText(t("not_counted") if s.peeked else "")
+        pp.not_counted.setStyleSheet(f"color: {pal['warn']}; font-weight: 600;")
+        pp.forecast_note.setStyleSheet(f"color: {pal['warn']};")
         for i, b in enumerate(pp.sign_buttons):
             b.setVisible(i < s.k)
             b.setEnabled(not demo and not s.over)
@@ -769,16 +857,23 @@ class GameWidget(QWidget):
         pp.pause_button.setText(t("resume") if self.paused else t("pause"))
         self._refresh_thoughts()
 
+    def peeking(self):
+        """Сейчас виден ход ИИ до хода человека: флажок включён, матч против ИИ идёт."""
+        s = self.session
+        return (self.settings["peek"] and s is not None and s.mode == "play" and not s.over
+                and s.match.pending is not None)
+
     def _thoughts_source(self):
-        """(мысли, заголовок): до хода - только с подглядыванием, иначе - о сыгранном раунде."""
+        """(мысли, заголовок, подпись столбиков, сыгранный ход): до хода - только с
+        подглядыванием, иначе - о прошлом раунде."""
         s = self.session
         t = self.t
-        if self.settings["peek"] and s.mode == "play" and not s.over and s.pending_thoughts() is not None:
-            return s.pending_thoughts(), t("thoughts_now")
+        if self.peeking():
+            return s.pending_thoughts(), t("thoughts_now"), t("predicted_now"), None
         rv = s.last_reveal()
         if rv is None:
-            return None, t("thoughts_none")
-        return rv.thoughts, t("thoughts_round", n=rv.round_no + 1)
+            return None, t("thoughts_none"), "", None
+        return rv.thoughts, t("thoughts_round", n=rv.round_no + 1), t("expected_last", n=rv.round_no + 1), rv.human
 
     def _refresh_thoughts(self):
         s = self.session
@@ -791,14 +886,22 @@ class GameWidget(QWidget):
             w.blockSignals(False)
         pp.thoughts_hint.setVisible(show)
         pp.peek_box.setVisible(s.mode == "play")
-        pp.peek_hint.setVisible(s.mode == "play" and self.settings["peek"])
-        th, title = self._thoughts_source() if show else (None, "")
+        peek = self.peeking()
+        pp.ai_move_peek.setVisible(peek)
+        pp.ai_move_peek.setText(t("ai_move_peek", move=self.sign_name(s.match.pending.move)) if peek else "")
+        hidden = show and s.mode == "play" and not s.over and not peek
+        pp.forecast_note.setVisible(hidden)
+        pp.forecast_note.setText(t("forecast_hidden") if hidden else "")
+        th, title, caption, actual = self._thoughts_source() if show else (None, "", "", None)
         for w in pp.thought_widgets():
             w.setVisible(show and th is not None)
         pp.th_title.setVisible(show)
         pp.th_title.setText(title)
         if not show or th is None:
             return
+        pp.bars_caption.setText(caption)
+        pp.th_actual.setText(t("you_played", move=self.sign_name(actual)) if actual is not None else "")
+        pp.th_actual.setVisible(actual is not None)
         dist = th.get("dist") or [1 / s.k] * s.k
         target = max(range(s.k), key=lambda i: dist[i]) if th.get("mode") == "predict" else None
         pp.bars.set_data(dist, [self.sign_name(i) for i in range(s.k)], self.ctx.theme, target)

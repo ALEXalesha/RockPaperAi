@@ -130,20 +130,58 @@ def test_thoughts_are_about_the_played_round(app, win):
     assert not pp.bars.isVisibleTo(pp)
 
 
-def test_peek_shows_prediction_and_keeps_match_out_of_stats(app, win):
+def test_without_peek_the_forecast_for_this_move_is_hidden(app, win):
+    """Без флажка до хода виден только отпечаток: панель прямо говорит, что прогноз скрыт,
+    а столбики подписаны как ожидание ИИ в ПРОШЛОМ раунде (жалоба Алексея 10.10: «прогноз
+    показывается всегда»)."""
+    g = win.game
+    g.change("peek", False)
+    g.start_match(seed=21)
+    pp = g.play
+    for _ in range(8):
+        g.on_sign(0)
+    rv = g.session.last_reveal()
+    assert pp.forecast_note.isVisibleTo(pp) and pp.forecast_note.text() == RU["forecast_hidden"]
+    assert pp.bars_caption.text() == RU["expected_last"].format(n=rv.round_no + 1)
+    assert pp.bars.dist == rv.thoughts["dist"]
+    assert not pp.ai_move_peek.isVisibleTo(pp)
+    assert not pp.not_counted.isVisibleTo(pp)
+    assert g.session.commit[:16] in pp.commit.text()
+
+
+def test_peek_shows_this_move_and_keeps_match_out_of_stats(app, win):
     g = win.game
     g.change("length", 50)
     g.start_match(seed=9)
     g.on_sign(0)
     g.change("peek", True)
+    pp = g.play
     assert g.session.peeked
-    assert g.play.th_title.text() == RU["thoughts_now"]
-    assert g.play.bars.dist == g.session.pending_thoughts()["dist"]
+    assert pp.bars_caption.text() == RU["predicted_now"]
+    assert pp.bars.dist == g.session.pending_thoughts()["dist"]
+    assert not pp.forecast_note.isVisibleTo(pp)
+    planned = RU[["rock", "paper", "scissors"][g.session.match.pending.move]]
+    assert pp.ai_move_peek.isVisibleTo(pp) and planned in pp.ai_move_peek.text()
+    assert pp.not_counted.isVisibleTo(pp) and pp.not_counted.text() == RU["not_counted"]
     play_with_bot(g, "repeat")
     assert g.ctx.stats.entry("3/strong")["games"] == 0
+    assert not os.path.exists(os.path.join(g.ctx.data_dir, "rounds.json"))
+    assert g.match_history() == []
     g.change("peek", False)
+    assert pp.not_counted.isVisibleTo(pp)                 # выключили поздно - матч всё равно вне статистики
     g.start_match(seed=10)                                # новый матч без подглядывания - считается
-    assert not g.session.peeked
+    assert not g.session.peeked and not pp.not_counted.isVisibleTo(pp)
+
+
+def test_peek_switch_says_what_it_does(app, win):
+    g = win.game
+    g.start_match(seed=1)
+    box = g.play.peek_box
+    assert box.text() == "Подсматривать ход ИИ (матч не идёт в статистику)"
+    assert "отпечаток" in box.toolTip() and "статистик" in box.toolTip()
+    win.ctx.set_lang("en")
+    assert "not counted" in box.text() and "fingerprint" in box.toolTip()
+    win.ctx.set_lang("ru")
 
 
 def test_endless_match_ends_by_button(app, win):
@@ -230,6 +268,83 @@ def test_wrapped_labels_fit_at_minimum_size(app, win):
             if w.isVisible() and w.text():
                 assert w.heightForWidth(w.width()) <= w.height() + 1, w.text()
     assert len(g.findChildren(Combo)) >= 3
+
+
+def test_stats_charts_follow_matches_levels_and_passport(app, win):
+    """Графики статистики (правило Алексея 10.10 для всех игр с ИИ): доля выигранных раундов
+    по матчам, по уровням и сила ИИ из паспорта столбиками."""
+    g = win.game
+    st = g.stats
+    g.show_page("stats")
+    assert not st.chart_matches.has_data() and not st.chart_levels.has_data()
+    assert st.chart_ai.has_data() and len(st.chart_ai.groups) == 9
+    pp = g.passport()
+    cyc = next(c for c in pp["checks"] if c["k"] == 3 and c["level"] == "strong" and c["bot"] == "cycle")
+    assert st.chart_ai.series[0][2][1] == cyc["after30"]["win"]
+    g.change("length", 50)
+    for level, seed in (("strong", 1), ("strong", 2), ("novice", 3)):
+        g.change("level", level)
+        g.start_match(seed=seed)
+        play_with_bot(g, "cycle", seed)
+    g.show_page("stats")
+    hist = g.match_history()
+    assert [m["level"] for m in hist] == ["strong", "strong", "novice"] and all(m["rounds"] == 50 for m in hist)
+    assert st.chart_matches.points == [(i + 1.0, m["wins"] / 50) for i, m in enumerate(hist)]
+    assert st.chart_matches.second == [(i + 1.0, m["losses"] / 50) for i, m in enumerate(hist)]
+    assert st.chart_matches.has_data()
+    assert st.chart_levels.groups == ["3 · Новичок", "3 · Сильный"]
+    tot = g.round_totals()["3/strong"]
+    assert st.chart_levels.series[1][2][1] == tot[2] / sum(tot)
+    win.ctx.set_theme("light")
+    assert all(c.theme == "light" for c in st.charts())
+    for c in st.charts():
+        assert not c.grab().toImage().isNull()
+    win.ctx.set_lang("en")
+    assert st.chart_matches.title == "Share of rounds won, match by match"
+    win.ctx.set_lang("ru")
+    win.ctx.set_theme("dark")
+
+
+def test_stats_cards_do_not_overlap_and_side_panel_is_not_clipped(app, win):
+    """Кадр 10.10: графики статистики налезали друг на друга (страница в прокрутке не
+    росла вслед за содержимым), а длинная подпись флажка раздвигала боковую панель и
+    обрезала «Мысли ИИ» справа. Шаги - как у того кадра."""
+    g = win.game
+    g.change("length", 50)
+    for level, seed in (("strong", 1), ("strong", 2), ("medium", 3), ("novice", 4)):
+        g.change("level", level)
+        g.start_match(seed=seed)
+        play_with_bot(g, "human", seed)
+    g.change("level", "strong")
+    g.start_match(seed=9)
+    for i in range(7):
+        g.on_sign(i % 3)
+    app.processEvents()
+    win.grab()
+    g.change("peek", True)
+    app.processEvents()
+    win.grab()
+    side = g.play.thoughts_box.parentWidget()
+    view = side.parentWidget()                      # окно прокрутки боковой панели
+    assert side.width() <= view.width() + 1
+    g.change("peek", False)
+    g.show_page("stats")
+    app.processEvents()
+    st = g.stats
+    cards = [st.table, *st.charts(), st.pp]
+    spans = sorted((w.geometry().top(), w.geometry().bottom()) for w in cards)
+    for (a0, a1), (b0, b1) in zip(spans, spans[1:]):
+        assert a1 < b0, spans
+
+
+def test_broken_match_history_is_ignored(app, win):
+    g = win.game
+    with open(os.path.join(g.ctx.data_dir, "matches.json"), "w", encoding="utf-8") as f:
+        json.dump([{"k": 3, "level": "strong", "rounds": 10, "wins": 9, "ties": 9, "losses": 9}, "x",
+                   {"k": 4, "level": "strong", "rounds": 1, "wins": 1, "ties": 0, "losses": 0},
+                   {"k": 3, "level": "medium", "rounds": 2, "wins": 1, "ties": 0, "losses": 1}], f)
+    assert g.match_history() == [{"k": 3, "level": "medium", "rounds": 2, "wins": 1, "ties": 0, "losses": 1}]
+    g.show_page("stats")
 
 
 def test_stats_page_shows_passport(app, win):

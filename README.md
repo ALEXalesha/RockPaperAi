@@ -25,11 +25,13 @@ Against a truly random player it cannot win, and the tests check that too.
 - **Sealed move**: before your move the window shows the SHA-256 fingerprint of the AI's choice; after
   the round the move and the key are revealed and the fingerprint is checked.
 - **AI thoughts**: how the AI expected you to play in the last round, which predictor led and why, the
-  best strategies. The prediction *before* your move is behind a "peek" switch, and such a match is
-  not counted: the prediction gives the AI's move away.
+  best strategies. Before your move only the fingerprint is visible; the switch "Peek at the AI's
+  move (match not counted)" shows the move the AI has already chosen and its forecast, and such a
+  match is marked and left out of statistics.
 - **Review after the match**: habits the AI found, for example "after a loss you chose what would have
   beaten the AI's move 67% of the time (random: 33%)", and the round from which the AI stayed ahead.
-- A chart of won rounds, statistics, Paint themes (dark and light), Russian and English, sounds, and the
+- A chart of won rounds; statistics with charts: share of rounds won match by match, rounds by
+  level, and the AI's strength from the passport as bars. Paint themes (dark and light), Russian and English, sounds, and the
   window reopens where it was closed. Signs are drawn by code, no images or emoji.
 
 ## How the AI plays

@@ -52,9 +52,22 @@ TU = "tests/test_ui.py"
 MUTANTS += [
     ("ui: подглядывание идёт в статистику", W, "                s.peeked = True\n            self.refresh()",
      "                pass\n            self.refresh()", TU),
-    ("ui: мысли до хода без флажка", W, 'if self.settings["peek"] and s.mode == "play"', 'if s.mode == "play"', TU),
     ("ui: клавиши 4-5 на трёх знаках", W, "or sign >= s.k or", "or", TU),
     ("ui: бесконечный матч не записывается", W, "        s.end()\n        self._finish()", "        s.end()", TU),
     ("ui: показ не останавливается", W, '        """Окно закрывается: таймер показа стоп. Своих потоков у игры нет."""\n        self.timer.stop()',
      '        """Окно закрывается: таймер показа стоп. Своих потоков у игры нет."""', TU),
+]
+# 10.10: подглядывание, журнал матчей и графики статистики
+MUTANTS += [
+    ("ui: прогноз до хода виден без флажка", W, 'return (self.settings["peek"] and s is not None', 'return (s is not None', TU),
+    ("ui: подсмотренный матч без пометки", W, 'pp.not_counted.setVisible(s.mode == "play" and s.peeked)',
+     "pp.not_counted.setVisible(False)", TU),
+    ("ui: подсмотренный матч в журнале", W, "        if outcome and s.counts():", "        if outcome:", TU),
+    ("ui: линия ИИ рисует победы человека", W, '[(i + 1, m["losses"] / m["rounds"]) for i, m in enumerate(hist)]',
+     '[(i + 1, m["wins"] / m["rounds"]) for i, m in enumerate(hist)]', TU),
+    ("ui: статистика без минимального размера", W,
+     "SetMinimumSize)\n        outer.setContentsMargins(26, 22, 26, 22)\n        outer.setSpacing(12)",
+     "SetDefaultConstraint)\n        outer.setContentsMargins(26, 22, 26, 22)\n        outer.setSpacing(12)", TU),
+    ("ui: подпись столбиков не говорит о прошлом раунде", W,
+     't("expected_last", n=rv.round_no + 1), rv.human', 't("predicted_now"), rv.human', TU),
 ]
