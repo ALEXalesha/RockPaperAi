@@ -90,6 +90,10 @@ Tests replay the first match of every check with the same seeds and check the cl
 - "AI thoughts" show the past round. The current prediction is shown only with "peek", and the match is
   then left out of statistics.
 
+## Download
+
+Ready builds for Windows (installer and portable zip) are in [Releases](../../releases). The builds are not code-signed, so SmartScreen may warn on first start.
+
 ## Run
 
 ```
