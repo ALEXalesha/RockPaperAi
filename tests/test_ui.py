@@ -173,6 +173,26 @@ def test_peek_shows_this_move_and_keeps_match_out_of_stats(app, win):
     assert not g.session.peeked and not pp.not_counted.isVisibleTo(pp)
 
 
+def test_peek_on_before_the_match_keeps_whole_match_out_of_stats(app, win):
+    """Флажок включён ещё в меню: весь матч подсмотрен - ни счёта, ни раундов, ни журнала."""
+    g = win.game
+    g.change("length", 50)
+    g.change("peek", True)
+    g.start_match(seed=11)
+    assert g.session.peeked
+    play_with_bot(g, "cycle")
+    assert g.session.over and g.session.outcome_for_human()
+    assert g.ctx.stats.entry("3/strong")["games"] == 0
+    assert not os.path.exists(os.path.join(g.ctx.data_dir, "rounds.json"))
+    assert not os.path.exists(os.path.join(g.ctx.data_dir, "matches.json"))
+    assert g.match_history() == []
+    g.change("peek", False)
+    g.start_match(seed=12)                                # без флажка - снова считается
+    play_with_bot(g, "cycle")
+    assert g.ctx.stats.entry("3/strong")["games"] == 1
+    assert len(g.match_history()) == 1
+
+
 def test_peek_switch_says_what_it_does(app, win):
     g = win.game
     g.start_match(seed=1)
