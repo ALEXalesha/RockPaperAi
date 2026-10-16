@@ -357,6 +357,83 @@ def test_stats_cards_do_not_overlap_and_side_panel_is_not_clipped(app, win):
         assert a1 < b0, spans
 
 
+def test_demo_thoughts_speak_about_the_bot_not_about_you(app, win):
+    """Проверка 16.10: в показе «ИИ против бота» ходит бот, а панель «Мыслей ИИ» писала
+    «Вы сыграли», «Чего ИИ ждал от вас» и «как вы сыграете», первый раунд - «ИИ ещё ничего о
+    вас не знает», а до первого раунда - «Сыграйте раунд»."""
+    g = win.game
+    g.change("mode", "demo")
+    g.change("show_thoughts", True)
+    g.start_match(seed=4)
+    pp = g.play
+    assert pp.last.text() == RU["first_round_bot"]
+    assert pp.th_title.text() == RU["thoughts_none_demo"]
+    for _ in range(5):
+        g._demo_step()
+    rv = g.session.last_reveal()
+    assert pp.th_actual.text() == RU["bot_played"].format(move=RU[["rock", "paper", "scissors"][rv.human]])
+    assert pp.bars_caption.text() == RU["expected_last_bot"].format(n=rv.round_no + 1)
+    assert pp.thoughts_hint.text() == RU["thoughts_hint_demo"]
+    texts = [pp.last.text(), pp.th_actual.text(), pp.bars_caption.text(), pp.thoughts_hint.text()]
+    assert not any(w in x.lower().split() for x in texts for w in ("вы", "вас", "ваш")), texts
+    win.ctx.set_lang("en")
+    assert pp.th_actual.text().startswith("The bot played") and "bot" in pp.thoughts_hint.text()
+    win.ctx.set_lang("ru")
+    g.change("mode", "play")                              # в игре против ИИ - снова о вас
+    g.start_match(seed=4)
+    assert pp.last.text() == RU["first_round"] and pp.thoughts_hint.text() == RU["thoughts_hint"]
+    g.on_sign(0)
+    assert pp.th_actual.text() == RU["you_played"].format(move=RU["rock"])
+
+
+def test_thoughts_hint_follows_peek(app, win):
+    """Проверка 16.10: с флажком «Подсматривать» панель показывает мысли перед ЭТИМ раундом,
+    а подсказка под «Мыслями ИИ» по-прежнему говорила «перед прошлым раундом»."""
+    g = win.game
+    g.change("show_thoughts", True)
+    g.change("peek", False)
+    g.start_match(seed=4)
+    g.on_sign(0)
+    assert g.play.thoughts_hint.text() == RU["thoughts_hint"]
+    g.change("peek", True)
+    assert g.play.thoughts_hint.text() == RU["thoughts_hint_now"]
+    g.change("peek", False)
+    assert g.play.thoughts_hint.text() == RU["thoughts_hint"]
+
+
+def test_levels_chart_goes_in_level_order(app, win):
+    """Проверка 16.10: столбики «Раунды по уровням» шли по алфавиту ключей («medium» раньше
+    «novice»): Средний, Новичок, Сильный - не так, как в таблице выше."""
+    g = win.game
+    g.change("length", 50)
+    for k, level in ((5, "strong"), (3, "strong"), (3, "medium"), (5, "novice"), (3, "novice")):
+        g.change("k", k)
+        g.change("level", level)
+        g.start_match(seed=2)
+        play_with_bot(g, "human", 2)
+    g.show_page("stats")
+    assert g.stats.chart_levels.groups == ["3 · Новичок", "3 · Средний", "3 · Сильный", "5 · Новичок", "5 · Сильный"]
+    table = [g.stats.table.item(r, 0).text() for r in range(g.stats.table.rowCount())]
+    assert table == g.stats.chart_levels.groups
+    g.change("k", 3)
+    g.change("level", "strong")
+
+
+def test_endless_match_shows_played_rounds_after_the_end(app, win):
+    """Проверка 16.10: матч без конца завершили после 10 раундов, а над счётом стояло
+    «Раунд 11» - раунда, которого не было."""
+    g = win.game
+    g.change("length", 0)
+    g.start_match(seed=5)
+    assert g.play.round_label.text() == RU["round_inf"].format(n=1)
+    for i in range(10):
+        g.on_sign(i % 3)
+    assert g.play.round_label.text() == RU["round_inf"].format(n=11)
+    g.end_match()
+    assert g.play.round_label.text() == RU["round_inf"].format(n=10)
+    g.change("length", 100)
+
+
 def test_broken_match_history_is_ignored(app, win):
     g = win.game
     with open(os.path.join(g.ctx.data_dir, "matches.json"), "w", encoding="utf-8") as f:

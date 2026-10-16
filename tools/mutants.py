@@ -69,5 +69,20 @@ MUTANTS += [
      "SetMinimumSize)\n        outer.setContentsMargins(26, 22, 26, 22)\n        outer.setSpacing(12)",
      "SetDefaultConstraint)\n        outer.setContentsMargins(26, 22, 26, 22)\n        outer.setSpacing(12)", TU),
     ("ui: подпись столбиков не говорит о прошлом раунде", W,
-     't("expected_last", n=rv.round_no + 1), rv.human', 't("predicted_now"), rv.human', TU),
+     'expected = t("expected_last_bot" if demo else "expected_last", n=rv.round_no + 1)',
+     'expected = t("predicted_now")', TU),
+]
+# 16.10, независимая проверка: показ говорил «вы» о боте, подсказка не следовала за
+# подглядыванием, уровни шли по алфавиту, матч без конца показывал несыгранный раунд
+MUTANTS += [
+    ("ui: в показе «Вы сыграли» о ходе бота", W, 'played = "bot_played" if s.mode == "demo" else "you_played"',
+     'played = "you_played"', TU),
+    ("ui: в показе «ждал от вас»", W, '"expected_last_bot" if demo else "expected_last"', '"expected_last"', TU),
+    ("ui: в показе первый раунд «о вас»", W, 't("first_round_bot") if demo else t("first_round")',
+     't("first_round")', TU),
+    ("ui: подсказка мыслей не следует за подглядыванием", W,
+     't("thoughts_hint_now") if self.peeking() else t("thoughts_hint")', 't("thoughts_hint")', TU),
+    ("ui: уровни на графике по алфавиту", W, "            for lv in LEVELS:\n                w, ti, lo",
+     "            for lv in sorted(LEVELS):\n                w, ti, lo", TU),
+    ("ui: матч без конца - раунд после конца", W, 'n=n if s.over else n + 1', 'n=n + 1', TU),
 ]
