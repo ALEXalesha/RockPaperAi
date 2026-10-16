@@ -86,3 +86,26 @@ MUTANTS += [
      "            for lv in sorted(LEVELS):\n                w, ti, lo", TU),
     ("ui: матч без конца - раунд после конца", W, 'n=n if s.over else n + 1', 'n=n + 1', TU),
 ]
+# 16.10, решение автора: брошенный матч после первого раунда - поражение
+SE = "game/ui/session.py"
+TB = "tests/test_abandon.py"
+MUTANTS += [
+    ("abandon: меню не бросает матч", W, "            self._abandon()                  # из меню",
+     "            pass                  # из меню", TB),
+    ("abandon: новый матч не бросает старый", W, "    def start_match(self, seed=None):\n        self._abandon()\n",
+     "    def start_match(self, seed=None):\n", TB),
+    ("abandon: закрытие окна не бросает матч", W, "        self._abandon()\n        self.timer.stop()\n        return True",
+     "        self.timer.stop()\n        return True", TB),
+    ("abandon: считается и без раундов", SE, 'if self.mode != "play" or self.over or not self.rounds:',
+     'if self.mode != "play" or self.over:', TB),
+    ("abandon: брошенный - по счёту", SE, '            return None\n        return "loss"',
+     '            return None\n        return "win" if self.match.score()["wins"] > self.match.score()["losses"] else "loss"', TB),
+    ("abandon: брошенный пишется дважды", W,
+     "        if s is None or s.recorded:\n            return\n        outcome = s.abandon_outcome()",
+     "        if s is None:\n            return\n        outcome = s.abandon_outcome()", TB),
+    ("abandon: подсмотренный брошенный считается", W, "        if not s.peeked:              # показ",
+     "        if True:              # показ", TB),
+    ("abandon: раунды брошенного не в итогах", W,
+     '        save_json(self.ctx.file("rounds.json"), totals)\n        history = self.match_history()\n        m = ',
+     '        history = self.match_history()\n        m = ', TB),
+]

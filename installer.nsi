@@ -1,7 +1,7 @@
 Unicode true
 
 !define APP "RockPaperAi"
-!define VERSION "1.0.1"
+!define VERSION "1.0.2"
 !define PUBLISHER "ALEXaloysha"
 !define REGKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}"
 
