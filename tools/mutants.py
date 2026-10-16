@@ -109,3 +109,12 @@ MUTANTS += [
      '        save_json(self.ctx.file("rounds.json"), totals)\n        history = self.match_history()\n        m = ',
      '        history = self.match_history()\n        m = ', TB),
 ]
+
+# графики статистики из aikit.charts (1.0.3)
+TC = "tests/test_stats_charts.py"
+MUTANTS += [
+    ("charts: ничья матча - победа в серии", W, '    return "win" if m["wins"] > m["losses"] else', '    return "win" if m["wins"] >= m["losses"] else', TC),
+    ("charts: рекорд вместо серии", W, "        cs.set_points(now, best)", "        cs.set_points(best, best)", TC),
+    ("charts: графика серий нет на странице", W, "        return (self.chart_matches, self.chart_streak, self.chart_levels, self.chart_ai)",
+     "        return (self.chart_matches, self.chart_levels, self.chart_ai)", TC),
+]
