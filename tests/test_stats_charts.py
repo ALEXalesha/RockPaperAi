@@ -12,12 +12,13 @@ def labels_intact(app, win, g):
         for lang in ("ru", "en"):
             win.ctx.set_theme(theme)
             win.ctx.set_lang(lang)
-            for width in (1280, win.minimumWidth()):
+            for width in (1280, 3840, win.minimumWidth()):
                 win.resize(width, 800)
                 app.processEvents()
                 for c in all_charts(g.stats):
                     c.grab()
                     assert c.clipped == [], (theme, lang, width, c.title, c.clipped)
+                    assert c.overlaps() == [], (theme, lang, width, c.title, c.overlaps())
     win.ctx.set_theme("dark")
     win.ctx.set_lang("ru")
     win.resize(1280, 800)
@@ -72,3 +73,31 @@ def test_streaks_of_matches_from_the_journal(app, win):
     st = g.stats
     assert [y for _, y in st.chart_streak.points] == [1, 2, 0, 0, 1, 2]
     assert [y for _, y in st.chart_streak.second] == [1, 2, 2, 2, 2, 2]
+
+
+def test_abandoned_match_breaks_the_streak_even_when_you_led(app, win):
+    """Брошенный матч в статистике - поражение при любом счёте (правило 1.0.2), и серия на
+    графике тоже рвётся. В 1.0.3 график брал итог по счёту раундов: два брошенных матча,
+    где вы вели 3:0 и 2:0, рисовал серией 2 и рекордом 2 при «0 побед» в таблице."""
+    from tests.test_abandon import leave, win_rounds
+    g = win.game
+    g.change("level", "novice")
+    g.change("length", 50)
+    for seed, n in ((1, 3), (2, 2)):
+        g.start_match(seed=seed)
+        win_rounds(g, n)
+        leave(app, g, "menu")
+    e = g.ctx.stats.entry(g.session.stats_key())
+    assert e["losses"] == 2 and e["best_streak"] == 0
+    assert all(m.get("abandoned") for m in g.match_history())
+    g.show_page("stats")
+    st = g.stats
+    assert [y for _, y in st.chart_streak.points] == [0, 0]
+    assert [y for _, y in st.chart_streak.second] == [0, 0]
+
+
+def test_abandoned_match_in_the_journal_is_a_loss():
+    from game.ui.widget import match_outcome
+    m = {"k": 3, "level": "strong", "rounds": 4, "wins": 4, "ties": 0, "losses": 0}
+    assert match_outcome(m) == "win"
+    assert match_outcome(dict(m, abandoned=True)) == "loss"

@@ -54,8 +54,8 @@ MUTANTS += [
      "                pass\n            self.refresh()", TU),
     ("ui: клавиши 4-5 на трёх знаках", W, "or sign >= s.k or", "or", TU),
     ("ui: бесконечный матч не записывается", W, "        s.end()\n        self._finish()", "        s.end()", TU),
-    ("ui: показ не останавливается", W, '        """Окно закрывается: таймер показа стоп. Своих потоков у игры нет."""\n        self.timer.stop()',
-     '        """Окно закрывается: таймер показа стоп. Своих потоков у игры нет."""', TU),
+    ("ui: показ не останавливается", W, '        self._abandon()\n        self.timer.stop()\n        return True',
+     '        self._abandon()\n        return True', TU),
 ]
 # 10.10: подглядывание, журнал матчей и графики статистики
 MUTANTS += [
@@ -117,4 +117,6 @@ MUTANTS += [
     ("charts: рекорд вместо серии", W, "        cs.set_points(now, best)", "        cs.set_points(best, best)", TC),
     ("charts: графика серий нет на странице", W, "        return (self.chart_matches, self.chart_streak, self.chart_levels, self.chart_ai)",
      "        return (self.chart_matches, self.chart_levels, self.chart_ai)", TC),
+    # 17.10 проверка графиков: брошенный матч рисовался победой в серии
+    ("charts: брошенный матч по счёту", W, '    if m.get("abandoned"):\n        return "loss"\n', "", TC + " -k abandoned"),
 ]
